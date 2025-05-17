@@ -2,26 +2,32 @@ pipeline {
     agent {
         docker {
             image 'ilyes94/maven-docker-java17'
-            args '-v /root/.m2:/root/.m2 -v /var/run/docker.sock:/var/run/docker.sock'  
+            args '-v /root/.m2:/root/.m2 -v /var/run/docker.sock:/var/run/docker.sock'
         }
     }
 
     triggers {
-        cron 'H/30 * * * *'  
+        cron 'H/30 * * * *'
     }
 
     environment {
         DOCKERHUB_CREDENTIALS = credentials('dockerHub')
-        DOCKER_CONFIG = '/tmp/.docker'  
+        DOCKER_CONFIG = '/tmp/.docker'
     }
 
     stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
         stage('Build') {
             steps {
                 script {
                     def name = sh(script: 'mvn -q -DforceStdout help:evaluate -Dexpression=project.name', returnStdout: true).trim()
                     def version = sh(script: 'mvn -q -DforceStdout help:evaluate -Dexpression=project.version', returnStdout: true).trim()
-                    sh 'docker info'  
+                    sh 'docker info'
                     sh 'mvn -B -DskipTests clean package'
                 }
             }
