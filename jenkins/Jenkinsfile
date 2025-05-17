@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     triggers {
-        cron 'H/30 * * * *'
+        cron 'H/30 * * * *' // Toutes les 30 minutes
     }
 
     environment {
@@ -11,24 +11,11 @@ pipeline {
 
     stages {
 
-        stage('Init Project Info') {
+        stage('Check Names') {
             steps {
                 script {
-                    try {
-                        env.PROJECT_NAME = sh(
-                            script: "mvn help:evaluate -Dexpression=project.name -q -DforceStdout | grep -v '\\['",
-                            returnStdout: true
-                        ).trim()
-                        env.PROJECT_VERSION = sh(
-                            script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout | grep -v '\\['",
-                            returnStdout: true
-                        ).trim()
-                    } catch (e) {
-                        echo "⚠️ Erreur lors de la récupération du nom/version du projet. Valeurs par défaut utilisées."
-                        env.PROJECT_NAME = "default-name"
-                        env.PROJECT_VERSION = "0.0.1"
-                    }
-
+                    env.PROJECT_NAME = sh(script: "mvn help:evaluate -Dexpression=project.name -q -DforceStdout | grep -v '\\['", returnStdout: true).trim()
+                    env.PROJECT_VERSION = sh(script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout | grep -v '\\['", returnStdout: true).trim()
                     echo "✔️ Nom du projet : ${env.PROJECT_NAME}"
                     echo "✔️ Version du projet : ${env.PROJECT_VERSION}"
                 }
@@ -57,13 +44,13 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                    sh """
+                    sh '''
                         mvn clean verify sonar:sonar \
-                          -Dsonar.projectKey=${env.PROJECT_NAME} \
-                          -Dsonar.projectName=${env.PROJECT_NAME} \
+                          -Dsonar.projectKey=ajava-maven-project \
+                          -Dsonar.projectName="ajava-maven-project" \
                           -Dsonar.host.url=http://localhost:9000 \
                           -Dsonar.token=$SONAR_TOKEN
-                    """
+                    '''
                 }
             }
         }
@@ -76,27 +63,33 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                sh "docker build -t ${env.PROJECT_NAME}:${env.PROJECT_VERSION} ."
+                script {
+                    sh "docker build -t ${env.PROJECT_NAME}:${env.PROJECT_VERSION} ."
+                }
             }
         }
 
         stage('Docker Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerHub', passwordVariable: 'dockerHubPassword', usernameVariable: 'dockerHubUser')]) {
-                    sh """
-                        echo $dockerHubPassword | docker login -u $dockerHubUser --password-stdin
-                        docker tag ${env.PROJECT_NAME}:${env.PROJECT_VERSION} $dockerHubUser/${env.PROJECT_NAME}:${env.PROJECT_VERSION}
-                        docker push $dockerHubUser/${env.PROJECT_NAME}:${env.PROJECT_VERSION}
-                    """
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerHub', passwordVariable: 'dockerHubPassword', usernameVariable: 'dockerHubUser')]) {
+                        sh """
+                            echo $dockerHubPassword | docker login -u $dockerHubUser --password-stdin
+                            docker tag ${env.PROJECT_NAME}:${env.PROJECT_VERSION} $dockerHubUser/${env.PROJECT_NAME}:${env.PROJECT_VERSION}
+                            docker push $dockerHubUser/${env.PROJECT_NAME}:${env.PROJECT_VERSION}
+                        """
+                    }
                 }
             }
         }
 
         stage('Run Docker Container') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerHub', passwordVariable: 'dockerHubPassword', usernameVariable: 'dockerHubUser')]) {
-                    def containerName = "${env.PROJECT_NAME}-${env.PROJECT_VERSION}-${env.BUILD_NUMBER}".replaceAll("[^a-zA-Z0-9_.-]", "-")
-                    sh "docker run -d --name ${containerName} $dockerHubUser/${env.PROJECT_NAME}:${env.PROJECT_VERSION}"
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerHub', passwordVariable: 'dockerHubPassword', usernameVariable: 'dockerHubUser')]) {
+                        def containerName = "${env.PROJECT_NAME}-${env.PROJECT_VERSION}-${env.BUILD_NUMBER}".replaceAll("[^a-zA-Z0-9_.-]", "-")
+                        sh "docker run -d --name ${containerName} $dockerHubUser/${env.PROJECT_NAME}:${env.PROJECT_VERSION}"
+                    }
                 }
             }
         }
